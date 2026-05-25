@@ -1,38 +1,58 @@
 import type { PageLoad } from './$types';
-import type { SpaceStatus } from '$lib/types';
-import { env } from '$env/dynamic/public';
+import type { SpaceStatus, SpaceHistory } from '$lib/types';
 
-export const load: PageLoad = async ({ params, fetch }) => {
+export const load: PageLoad = async ({ params, fetch, url }) => {
   const { space_id } = params;
-  const baseUrl = env.PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
   
-  // 실제 백엔드 API 주소 연결
-  const API_URL = `${baseUrl}/api/v1/spaces/${space_id}/status`;
-
-  try {
-    const response = await fetch(API_URL);
-    
-    if (!response.ok) {
-      throw new Error(`백엔드 응답 에러: ${response.status} ${response.statusText}`);
-    }
-    
-    const data: SpaceStatus = await response.json();
-    return {
-      status: data
-    };
-  } catch (error) {
-    console.error('API 연결 실패:', error);
-    
-    // 연결 실패 시 사용자에게 알리기 위해 에러 데이터를 포함하여 반환
-    return {
-      status: {
-        space_id: Number(space_id),
-        space_name: "연결 오류",
-        wifi_count: 0,
-        bt_count: 0,
-        last_update: null
-      } as SpaceStatus,
-      error: error instanceof Error ? error.message : '알 수 없는 에러'
-    };
+  // URL에서 날짜를 가져오되, 없으면 오늘 날짜(로컬 기준)를 기본값으로 사용
+  let targetDate = url.searchParams.get('target_date');
+  if (!targetDate) {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    targetDate = `${year}-${month}-${day}`;
   }
+  
+  const historyUrl = `/api/v1/spaces/${space_id}/history?target_date=${targetDate}`;
+  const statusUrl = `/api/v1/spaces/${space_id}/status`;
+
+  let status: SpaceStatus = {
+    space_id: Number(space_id),
+    space_name: "알 수 없는 공간",
+    count: 0,
+    result: "오류",
+    last_update: null
+  };
+  
+  let history: SpaceHistory = { target: [], comparison: [] };
+
+  // 1. 실시간 상태 로드 (실패하더라도 기본 구조 유지)
+  try {
+    const statusRes = await fetch(statusUrl);
+    if (statusRes.ok) {
+      status = await statusRes.json();
+    } else {
+      console.warn('상태 API 로드 실패:', statusRes.status);
+    }
+  } catch (error) {
+    console.error('상태 API 네트워크 에러:', error);
+  }
+
+  // 2. 히스토리 로드 (히스토리가 실패해도 status는 반환되어 화면에 이름이 유지됨)
+  try {
+    const historyRes = await fetch(historyUrl);
+    if (historyRes.ok) {
+      history = await historyRes.json();
+    } else {
+      console.warn('히스토리 API 로드 실패:', historyRes.status);
+    }
+  } catch (error) {
+    console.error('히스토리 API 네트워크 에러:', error);
+  }
+
+  return {
+    status,
+    history
+  };
 };
