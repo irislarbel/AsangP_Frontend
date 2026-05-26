@@ -1,14 +1,13 @@
 export interface SpaceStatus {
   space_id: number;
   space_name: string;
-  count: number;
-  result: string;
+  congestion_level: number;
   last_update: string | null;
 }
 
 export interface HistoryPoint {
   time: string;
-  count: number;
+  congestion_level: number;
 }
 
 export interface SpaceHistory {

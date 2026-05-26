@@ -68,7 +68,7 @@
     datasets: [
       {
         label: `${selectedDate} (대상일)`,
-        data: (history.target || []).map(p => ({ x: timeToTimestamp(p.time, selectedDate), y: p.count })),
+        data: (history.target || []).map(p => ({ x: timeToTimestamp(p.time, selectedDate), y: p.congestion_level })),
         fill: true,
         borderColor: '#ff3e00',
         backgroundColor: 'rgba(255, 62, 0, 0.1)',
@@ -78,7 +78,7 @@
       {
         label: '7일 전 비교',
         // 겹쳐서 비교하기 위해 x축은 타겟 날짜(selectedDate)를 기준으로 생성
-        data: (history.comparison || []).map(p => ({ x: timeToTimestamp(p.time, selectedDate), y: p.count })),
+        data: (history.comparison || []).map(p => ({ x: timeToTimestamp(p.time, selectedDate), y: p.congestion_level })),
         fill: false,
         borderColor: '#cbd5e0',
         borderDash: [5, 5],
@@ -110,9 +110,8 @@
             return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
           },
           label: (context: any) => {
-            // 혼잡도 수치(count) 대신 상태 텍스트로 표시
-            const statusText = getCongestionLevel(context.parsed.y);
-            return `${context.dataset.label}: ${statusText}`;
+            // 혼잡도를 퍼센트로 표시
+            return `${context.dataset.label}: ${Math.round(context.parsed.y)}%`;
           }
         }
       },
@@ -159,11 +158,13 @@
     }
   });
 
-  // 혼잡도 수치를 상태 문자열로 변환하는 헬퍼 함수
-  function getCongestionLevel(count: number) {
-    if (count < 30) return '여유';
-    if (count < 70) return '보통';
-    return '혼잡';
+  // 혼잡도 수치를 상태 색상으로 변환하는 헬퍼 함수
+  function getStatusColor(level: number) {
+    const p = Math.max(0, Math.min(1, level / 100));
+    const r = Math.round(66 + (239 - 66) * p);
+    const g = Math.round(165 + (83 - 165) * p);
+    const b = Math.round(245 + (80 - 245) * p);
+    return `rgb(${r}, ${g}, ${b})`;
   }
 </script>
 
@@ -181,8 +182,8 @@
       </div>
     </div>
     <div class="current-status">
-      <span class="status-tag" class:busy={status.result === '혼잡'} class:normal={status.result === '보통'} class:free={status.result === '여유'}>
-        {status.result}
+      <span class="status-tag" style:background-color={getStatusColor(status.congestion_level)}>
+        {Math.round(status.congestion_level)}%
       </span>
       <span class="last-sync">실시간 업데이트: {status.last_update ? new Date(status.last_update).toLocaleString() : '-'}</span>
     </div>
@@ -279,9 +280,6 @@
     font-weight: bold;
     font-size: 0.85rem;
   }
-  .free { background-color: #4caf50; }
-  .normal { background-color: #ff9800; }
-  .busy { background-color: #f44336; }
 
   .last-sync { color: #94a3b8; font-size: 0.8rem; }
 
