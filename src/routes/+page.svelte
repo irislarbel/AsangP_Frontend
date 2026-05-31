@@ -255,40 +255,16 @@ const colors = [
 </div>
 
 <style>
-  @font-face {
-    font-family: 'AjouOTF';
-    src: url('/fonts/AjouOTF.otf') format('opentype');
-    font-weight: normal;
-    font-style: normal;
-    font-display: swap;
-  }
-
-  @font-face {
-    font-family: 'Noto Sans KR';
-    src: url('/fonts/NotoSans-Regular.woff2') format('woff2');
-    font-weight: normal;
-    font-style: normal;
-    font-display: swap;
-  }
-
-  :global(html, body) {
-    background-color: #f5f7fa;
-    margin: 0;
-    padding: 0;
-    width: 100%;
-    height: 100%;
-    font-family: 'Noto Sans KR', sans-serif;
-    overflow: hidden;
-  }
-
   .dashboard-root {
     width: 100%;
-    height: 100%;
+    height: 100vh;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
     padding: 0;
     margin: 0;
+    background-color: #f5f7fa;
+    overflow: hidden;
   }
 
   .main-header {

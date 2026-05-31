@@ -335,12 +335,6 @@
 </div>
 
 <style>
-  :global(body) {
-    background-color: #f8fafc;
-    margin: 0;
-    color: #1a202c;
-  }
-
   .container {
     max-width: 1000px;
     margin: 2rem auto;
