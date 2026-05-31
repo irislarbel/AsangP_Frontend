@@ -4,6 +4,7 @@
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
+  import Header from '$lib/components/Header.svelte';
   
   let Line: any = $state(null);
   let { data }: { data: PageData } = $props();
@@ -99,7 +100,7 @@
     return {
       datasets: [{
         data: dataPoints,
-        borderColor: '#3b82f6',
+        borderColor: '#072e5d',
         borderWidth: 1, // 얇은 굵기로 통일
         tension: 0.3,
         spanGaps: true
@@ -136,8 +137,9 @@
         label: `${selectedDate} (대상일)`,
         data: (history.target || []).map(p => ({ x: timeToTimestamp(p.time, selectedDate), y: p.congestion_level })),
         fill: true,
-        borderColor: '#ff3e00',
-        backgroundColor: 'rgba(255, 62, 0, 0.1)',
+        borderColor: '#072e5d',
+        backgroundColor: 'rgba(7, 46, 93, 0.1)',
+        borderWidth: 1,
         tension: 0.4,
         pointRadius: 0
       },
@@ -146,8 +148,8 @@
         // 겹쳐서 비교하기 위해 x축은 타겟 날짜(selectedDate)를 기준으로 생성
         data: (history.comparison || []).map(p => ({ x: timeToTimestamp(p.time, selectedDate), y: p.congestion_level })),
         fill: false,
-        borderColor: '#cbd5e0',
-        borderDash: [5, 5],
+        borderColor: '#cbd5e0', // 다시 회색 계열로 변경
+        borderWidth: 1,
         tension: 0.4,
         pointRadius: 0
       }
@@ -166,7 +168,7 @@
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
-      legend: { position: 'top' as const },
+      legend: { display: false },
       tooltip: {
         mode: 'index' as const,
         intersect: false,
@@ -232,34 +234,45 @@
     const b = Math.round(245 + (80 - 245) * p);
     return `rgb(${r}, ${g}, ${b})`;
   }
+
+  // 날짜 문자열 포맷팅 헬퍼 함수
+  function formatDateString(dateStr: string) {
+    if (!dateStr) return '';
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      return `${parseInt(parts[1], 10)}월 ${parseInt(parts[2], 10)}일`;
+    }
+    return dateStr;
+  }
 </script>
+
+<div class="page-wrapper">
+  <Header />
 
 <div class="container">
   <nav>
     <a href="/">&larr; 대시보드로 돌아가기</a>
   </nav>
 
-  <header>
-    <div class="header-main">
-      <h1>{status.space_name} <span class="id">ID: {status.space_id}</span></h1>
-      <div class="date-picker">
-        <label for="date">날짜 선택:</label>
-        <input type="date" id="date" value={selectedDate} onchange={handleDateChange} />
-      </div>
-    </div>
-    <div class="current-status">
-      <span class="status-tag" style:background-color={getStatusColor(status.congestion_level)}>
-        {Math.round(status.congestion_level)}%
-      </span>
-      <span class="last-sync">실시간 업데이트: {status.last_update ? new Date(status.last_update).toLocaleString() : '-'}</span>
-    </div>
-  </header>
 
-  <div class="chart-section">
-    <div class="chart-header">
-      <h2>전번 주 대비 혼잡도 분석</h2>
-      <p>마우스 휠로 <strong>확대/축소</strong>, 드래그로 <strong>좌우 이동</strong>이 가능합니다.</p>
-    </div>
+
+  <div class="content-grid">
+    <div class="chart-section">
+      <div class="chart-header">
+        <div class="chart-title-row">
+          <div class="title-with-status">
+            <h2>{status.space_name} 혼잡도 분석</h2>
+            <span class="status-tag" style:background-color={getStatusColor(status.congestion_level)}>
+              {Math.round(status.congestion_level)}%
+            </span>
+          </div>
+          <div class="date-picker">
+            <label for="date">조회 일자:</label>
+            <input type="date" id="date" value={selectedDate} onchange={handleDateChange} />
+          </div>
+        </div>
+        <p>마우스 휠로 <strong>확대/축소</strong>, 드래그로 <strong>좌우 이동</strong>이 가능합니다.</p>
+      </div>
     <div class="chart-container">
       {#if Line}
         <div class="chart-wrapper">
@@ -291,17 +304,10 @@
     <div class="table-container">
       {#if peakData && peakData.data && peakData.data.length > 0}
         <table>
-          <thead>
-            <tr>
-              <th>날짜</th>
-              <th>피크 시간대 (70% 이상)</th>
-              <th>일간 추세</th>
-            </tr>
-          </thead>
           <tbody>
             {#each peakData.data as pd}
               <tr>
-                <td>{pd.date}</td>
+                <td>{formatDateString(pd.date)}</td>
                 <td>
                   {#if pd.peak_ranges && pd.peak_ranges.length > 0}
                     <div class="peak-badges">
@@ -333,35 +339,65 @@
     </div>
   </div>
 </div>
+</div>
+</div>
 
 <style>
+  .page-wrapper {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    background-color: #f5f7fa;
+  }
+
   .container {
-    max-width: 1000px;
-    margin: 2rem auto;
+    max-width: 1600px;
+    width: 100%;
+    box-sizing: border-box;
+    margin: 1.5rem auto;
     padding: 0 1rem;
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+  }
+
+  .content-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+    flex-grow: 1;
+    min-height: 0;
+  }
+
+  @media (min-width: 1024px) {
+    .page-wrapper {
+      height: 100vh;
+      overflow: hidden;
+    }
+    .container {
+      min-height: 0;
+    }
+    .content-grid {
+      grid-template-columns: 55fr 45fr; /* 5.5:4.5 비율로 배치 */
+    }
   }
 
   nav { margin-bottom: 1.5rem; }
   nav a { text-decoration: none; color: #4a5568; font-weight: 600; font-size: 0.9rem; }
 
-  header {
-    background: white;
-    padding: 1.5rem 2rem;
-    border-radius: 16px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    margin-bottom: 2rem;
-  }
-
-  .header-main {
+  .title-with-status {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    flex-wrap: wrap;
-    gap: 1rem;
+    gap: 0.8rem;
   }
 
-  h1 { margin: 0; font-size: 1.75rem; }
-  .id { font-size: 0.9rem; color: #a0aec0; font-weight: normal; }
+  .status-tag {
+    padding: 0.2rem 0.8rem;
+    border-radius: 99px;
+    color: white;
+    font-weight: bold;
+    font-size: 0.85rem;
+  }
 
   .date-picker {
     display: flex;
@@ -378,56 +414,31 @@
     font-family: inherit;
   }
 
-  .current-status {
-    margin-top: 1rem;
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    border-top: 1px solid #f1f5f9;
-    padding-top: 1rem;
-  }
-
-  .status-tag {
-    padding: 0.2rem 0.8rem;
-    border-radius: 99px;
-    color: white;
-    font-weight: bold;
-    font-size: 0.85rem;
-  }
-
-  .last-sync { color: #94a3b8; font-size: 0.8rem; }
-
-  .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 1.25rem;
-    margin-bottom: 2rem;
-  }
-
-  .stat-card {
-    background: white;
-    padding: 1.25rem;
-    border-radius: 16px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    text-align: center;
-  }
-
-  .stat-card .label { display: block; color: #64748b; font-size: 0.85rem; margin-bottom: 0.4rem; }
-  .stat-card .value { font-size: 1.25rem; font-weight: 800; }
-  .stat-card .value.main { color: #ff3e00; font-size: 1.75rem; }
-
   .chart-section {
-    background: white;
-    padding: 2rem;
+    background: #fdfdfd;
+    padding: 1.5rem;
     border-radius: 16px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0; /* 세로 삐져나옴 방지 */
   }
 
-  .chart-header h2 { margin: 0; font-size: 1.15rem; color: #1e293b; }
-  .chart-header p { margin: 0.4rem 0 1.5rem 0; color: #64748b; font-size: 0.85rem; }
+  .chart-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+
+  .chart-header h2 { margin: 0; font-size: 1.25rem; color: #1e293b; }
+  .chart-header p { margin: 0 0 1rem 0; color: #64748b; font-size: 0.85rem; }
 
   .chart-container {
-    height: 400px;
+    flex-grow: 1; /* 남은 높이를 꽉 채우도록 설정 */
+    min-height: 300px;
     position: relative;
     display: flex;
     align-items: center;
@@ -468,37 +479,42 @@
 
   /* Table Section Styles */
   .table-section {
-    background: white;
-    padding: 2rem;
+    background: #fdfdfd;
+    padding: 1.5rem;
     border-radius: 16px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    margin-top: 2rem;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0; /* 세로 삐져나옴 방지 */
   }
 
   .table-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 1.5rem;
+    margin-bottom: 1rem;
     flex-wrap: wrap;
     gap: 1rem;
   }
 
-  .table-header h2 { margin: 0; font-size: 1.15rem; color: #1e293b; }
+  .table-header h2 { margin: 0; font-size: 1.25rem; color: #1e293b; }
 
   .table-container {
-    overflow-x: auto;
+    overflow: hidden; /* 스크롤바 완전히 제거 */
+    flex-grow: 1; /* 남은 높이 채움 */
+    min-height: 0;
   }
 
   table {
     width: 100%;
+    height: 100%; /* 표 크기를 컨테이너 크기에 딱 맞춤 */
     border-collapse: collapse;
     text-align: left;
     min-width: 500px;
   }
 
   th, td {
-    padding: 1rem;
+    padding: 0.5rem 1rem; /* 세로 패딩을 줄여서 한 화면에 더 잘 들어가도록 조정 */
     border-bottom: 1px solid #f1f5f9;
   }
 
