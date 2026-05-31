@@ -39,30 +39,37 @@
     goto(url.toString(), { keepFocus: true, noScroll: true });
   }
 
-  // Sparkline 공통 옵션
+  // Sparkline 공통 옵션 (상단 메인 차트와 동일한 TimeScale 사용)
   const sparklineOptions = {
     responsive: true,
     maintainAspectRatio: false,
+    animation: false, // 스파크라인 차트는 애니메이션 비활성화로 성능 최적화
     plugins: {
       legend: { display: false },
       tooltip: { enabled: false },
-      zoom: { zoom: { enabled: false }, pan: { enabled: false } }
+      zoom: {
+        pan: { enabled: false },
+        zoom: {
+          wheel: { enabled: false },
+          pinch: { enabled: false },
+          drag: { enabled: false }
+        }
+      }
     },
     scales: {
-      x: { display: false },
+      x: { 
+        type: 'time' as const,
+        display: false 
+      },
       y: { display: false, min: 0, max: 100 }
     },
     elements: {
       point: { radius: 0 }
     },
-    layout: { padding: 0 }
+    layout: { 
+      padding: { top: 2, bottom: 2 } // Y축 0에서 선이 캔버스 밖으로 잘려서 얇아 보이는 현상 방지
+    }
   };
-
-  // Sparkline 공통 라벨 (06:00 ~ 익일 05:00)
-  const sparklineLabels = Array.from({ length: 24 }, (_, i) => {
-    const h = (i + 6) % 24;
-    return `${String(h).padStart(2, '0')}:00`;
-  });
 
   // "HH:mm" 문자열을 해당 날짜의 실제 Date 객체의 타임스탬프(ms)로 변환
   // 00:00 ~ 05:50은 실질적으로 다음날 데이터이므로 날짜를 하루 더해줌
@@ -78,6 +85,28 @@
     return dateObj.getTime();
   }
 
+  // Sparkline 데이터 생성 헬퍼 함수 (상단 차트처럼 타임스탬프 변환)
+  function getSparklineData(trend: (number | null)[], baseDate: string) {
+    const dataPoints = (trend || []).map((val, i) => {
+      const h = (i + 6) % 24;
+      const timeStr = `${String(h).padStart(2, '0')}:00`;
+      return {
+        x: timeToTimestamp(timeStr, baseDate),
+        y: val ?? 0
+      };
+    });
+
+    return {
+      datasets: [{
+        data: dataPoints,
+        borderColor: '#3b82f6',
+        borderWidth: 1, // 얇은 굵기로 통일
+        tension: 0.3,
+        spanGaps: true
+      }]
+    };
+  }
+
   onMount(async () => {
     if (browser) {
       const chartJSMod = await import('chart.js');
@@ -90,7 +119,6 @@
         Chart: ChartJS, Title, Tooltip, Legend, LineElement, LinearScale, PointElement, TimeScale, Filler
       } = chartJSMod;
 
-      // CategoryScale 대신 TimeScale 사용
       ChartJS.register(Title, Tooltip, Legend, LineElement, LinearScale, PointElement, TimeScale, Filler, zoomPluginMod.default);
       Line = chartMod.Line;
     }
@@ -282,23 +310,14 @@
                       {/each}
                     </div>
                   {:else}
-                    <span class="no-peak">혼잡 시간대 없음 <small>(최고 {pd.max_congestion}%)</small></span>
+                    <span class="no-peak">혼잡 시간대 없음 <small>(최고 {pd.max_congestion ?? 0}%)</small></span>
                   {/if}
                 </td>
                 <td class="sparkline-cell">
                   {#if Line}
                     <div class="sparkline-wrapper">
                       <Line 
-                        data={{
-                          labels: sparklineLabels,
-                          datasets: [{
-                            data: pd.daily_trend,
-                            borderColor: '#3b82f6',
-                            borderWidth: 2,
-                            tension: 0.3,
-                            spanGaps: false
-                          }]
-                        }} 
+                        data={getSparklineData(pd.daily_trend, pd.date)} 
                         options={sparklineOptions} 
                       />
                     </div>
@@ -530,6 +549,7 @@
   }
 
   .sparkline-wrapper {
+    position: relative;
     width: 150px;
     height: 40px;
   }

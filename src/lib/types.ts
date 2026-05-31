@@ -18,7 +18,7 @@ export interface SpaceHistory {
 export interface PeakData {
   date: string;
   peak_ranges: string[];
-  max_congestion: number;
+  max_congestion: number | null;
   daily_trend: (number | null)[];
 }
 
