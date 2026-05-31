@@ -232,7 +232,10 @@ const colors = [
 <div class="dashboard-root">
   <header class="main-header">
     <div class="header-content">
-      <img src="/LandingPageBanner.png" alt="Logo" class="header-logo" />
+      <a href="https://www.ajou.ac.kr" class="logo-link">
+        <img src="/LandingPageBanner.png" alt="Logo" class="header-logo" />
+        <span class="logo-text">아주대학교</span>
+      </a>
       <div class="header-text">
         <h1>AsangP Dashboard</h1>
         <p class="subtitle">실시간 공간 혼잡도 모니터링</p>
@@ -252,6 +255,14 @@ const colors = [
 </div>
 
 <style>
+  @font-face {
+    font-family: 'AjouOTF';
+    src: url('/fonts/AjouOTF.otf') format('opentype');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+  }
+
   @font-face {
     font-family: 'Noto Sans KR';
     src: url('/fonts/NotoSans-Regular.woff2') format('woff2');
@@ -301,12 +312,29 @@ const colors = [
     justify-content: center;
   }
 
+  .logo-link {
+    position: absolute;
+    left: 5vw;
+    top: 50%;
+    transform: translateY(-40%);
+    display: flex;
+    align-items: center;
+    gap: clamp(0.3rem, 1.2vw, 0.8rem);
+    text-decoration: none;
+  }
+
   .header-logo {
-    position: absolute; /* 로고를 텍스트 흐름에서 제외 */
-    left: 5vw; /* 현재 로고가 있는 위치와 동일하게 */
-    height: clamp(3rem, 8vw, 5rem);
+    height: clamp(2.5rem, 6.5vw, 4rem); /* 텍스트와 균형을 이루도록 소폭 조정 */
     width: auto;
     object-fit: contain;
+  }
+
+  .logo-text {
+    font-family: 'AjouOTF', sans-serif;
+    color: #dee2e6;
+    font-size: clamp(1rem, 2.5vw, 1.5rem);
+    font-weight: 700;
+    white-space: nowrap;
   }
 
   .header-text {
