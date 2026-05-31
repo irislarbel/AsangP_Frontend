@@ -14,3 +14,17 @@ export interface SpaceHistory {
   target: HistoryPoint[];
   comparison: HistoryPoint[];
 }
+
+export interface PeakData {
+  date: string;
+  peak_ranges: string[];
+  max_congestion: number;
+  daily_trend: (number | null)[];
+}
+
+export interface PeakResponse {
+  space_id: number;
+  target_date: string;
+  threshold: number;
+  data: PeakData[];
+}

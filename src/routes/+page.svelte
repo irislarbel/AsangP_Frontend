@@ -333,7 +333,7 @@ const colors = [
     font-family: 'AjouOTF', sans-serif;
     color: #dee2e6;
     font-size: clamp(1rem, 2.5vw, 1.5rem);
-    font-weight: 700;
+    font-weight: 10;
     white-space: nowrap;
   }
 

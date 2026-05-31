@@ -20,11 +20,49 @@
     return `${y}-${m}-${d}`;
   })());
 
+  // 피크 분석 데이터 및 날짜
+  let peakData = $derived(data.peakData);
+  let peakDateStr = $derived(data.peakDateStr);
+
   function handleDateChange(e: Event) {
     const target = e.target as HTMLInputElement;
     selectedDate = target.value;
-    goto(`?target_date=${selectedDate}`, { keepFocus: true, noScroll: true });
+    const url = new URL(page.url);
+    url.searchParams.set('target_date', selectedDate);
+    goto(url.toString(), { keepFocus: true, noScroll: true });
   }
+
+  function handlePeakDateChange(e: Event) {
+    const target = e.target as HTMLInputElement;
+    const url = new URL(page.url);
+    url.searchParams.set('peak_target_date', target.value);
+    goto(url.toString(), { keepFocus: true, noScroll: true });
+  }
+
+  // Sparkline 공통 옵션
+  const sparklineOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { enabled: false },
+      zoom: { zoom: { enabled: false }, pan: { enabled: false } }
+    },
+    scales: {
+      x: { display: false },
+      y: { display: false, min: 0, max: 100 }
+    },
+    elements: {
+      point: { radius: 0 }
+    },
+    layout: { padding: 0 }
+  };
+
+  // Sparkline 공통 라벨 (06:00 ~ 익일 05:00)
+  const sparklineLabels = Array.from({ length: 24 }, (_, i) => {
+    const h = (i + 6) % 24;
+    return `${String(h).padStart(2, '0')}:00`;
+  });
 
   // "HH:mm" 문자열을 해당 날짜의 실제 Date 객체의 타임스탬프(ms)로 변환
   // 00:00 ~ 05:50은 실질적으로 다음날 데이터이므로 날짜를 하루 더해줌
@@ -212,6 +250,69 @@
       * 데이터가 없는 시간대는 0으로 자동 보정되어 표시됩니다. (06:00 ~ 익일 05:50)
     </div>
   </div>
+  
+  <div class="table-section">
+    <div class="table-header">
+      <h2>과거 7일 피크 시간대</h2>
+      <div class="date-picker">
+        <label for="peakDate">기준 날짜:</label>
+        <input type="date" id="peakDate" value={peakDateStr} onchange={handlePeakDateChange} />
+      </div>
+    </div>
+    
+    <div class="table-container">
+      {#if peakData && peakData.data && peakData.data.length > 0}
+        <table>
+          <thead>
+            <tr>
+              <th>날짜</th>
+              <th>피크 시간대 (70% 이상)</th>
+              <th>일간 추세</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each peakData.data as pd}
+              <tr>
+                <td>{pd.date}</td>
+                <td>
+                  {#if pd.peak_ranges && pd.peak_ranges.length > 0}
+                    <div class="peak-badges">
+                      {#each pd.peak_ranges as pr}
+                        <span class="peak-badge">{pr}</span>
+                      {/each}
+                    </div>
+                  {:else}
+                    <span class="no-peak">혼잡 시간대 없음 <small>(최고 {pd.max_congestion}%)</small></span>
+                  {/if}
+                </td>
+                <td class="sparkline-cell">
+                  {#if Line}
+                    <div class="sparkline-wrapper">
+                      <Line 
+                        data={{
+                          labels: sparklineLabels,
+                          datasets: [{
+                            data: pd.daily_trend,
+                            borderColor: '#3b82f6',
+                            borderWidth: 2,
+                            tension: 0.3,
+                            spanGaps: false
+                          }]
+                        }} 
+                        options={sparklineOptions} 
+                      />
+                    </div>
+                  {/if}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      {:else}
+        <p class="loading-table">데이터를 불러오거나 백엔드 API가 준비되지 않았습니다.</p>
+      {/if}
+    </div>
+  </div>
 </div>
 
 <style>
@@ -351,4 +452,91 @@
   }
 
   .loading-chart { color: #94a3b8; font-style: italic; }
+
+  /* Table Section Styles */
+  .table-section {
+    background: white;
+    padding: 2rem;
+    border-radius: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    margin-top: 2rem;
+  }
+
+  .table-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+
+  .table-header h2 { margin: 0; font-size: 1.15rem; color: #1e293b; }
+
+  .table-container {
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    min-width: 500px;
+  }
+
+  th, td {
+    padding: 1rem;
+    border-bottom: 1px solid #f1f5f9;
+  }
+
+  th {
+    color: #64748b;
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+
+  td {
+    color: #334155;
+    vertical-align: middle;
+  }
+
+  .peak-badges {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .peak-badge {
+    background-color: #fee2e2;
+    color: #ef4444;
+    padding: 0.25rem 0.75rem;
+    border-radius: 99px;
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .no-peak {
+    color: #10b981;
+    font-weight: 500;
+  }
+  
+  .no-peak small {
+    color: #64748b;
+    font-weight: normal;
+  }
+
+  .sparkline-cell {
+    width: 150px;
+  }
+
+  .sparkline-wrapper {
+    width: 150px;
+    height: 40px;
+  }
+  
+  .loading-table {
+    text-align: center;
+    color: #94a3b8;
+    padding: 2rem 0;
+  }
 </style>
