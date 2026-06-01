@@ -9,16 +9,12 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     
-    # 💡 GitHub 'Environment(환경)'에 Secret을 만드셨으므로 적용되는 설정입니다.
-    # 환경 이름이 다를 경우(예: dev) 아래 이름을 맞춰주세요.
     environment: production 
     
     steps:
-      # 1. 깃헙 액션 서버로 최신 코드를 체크아웃 (깃헙 인증은 여기서 자동 처리됨)
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. 만약 서버에 폴더가 없다면 미리 안전하게 생성해 둠 (mkdir -p)
       - name: Create Target Directory
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -28,7 +24,6 @@ jobs:
           script: |
             mkdir -p /home/ubuntu/asangp-frontend
             
-      # 3. SCP를 사용해 깃헙 액션 서버의 코드를 사용자님의 서버로 복사 (node_modules 없는 순수 소스코드)
       - name: Copy files to server via SCP
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -38,7 +33,6 @@ jobs:
           source: "."
           target: "/home/ubuntu/asangp-frontend"
           
-      # 3. 서버에 SSH로 접속하여 도커 빌드 및 실행
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -46,22 +40,17 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            # 복사된 폴더로 이동 
             cd /home/ubuntu/asangp-frontend
             
-            # 3-1. 도커 빌드 (서버에서 실행)
             docker build -t asangp-frontend:latest .
             
-            # 3-2. 기존 컨테이너 중지 및 삭제
             docker stop asangp-frontend || true
             docker rm asangp-frontend || true
             
-            # 3-3. 새 컨테이너 실행 (서버 내부 3000포트)
             docker run -d \
               --name asangp-frontend \
               --restart unless-stopped \
               -p 3000:3000 \
               asangp-frontend:latest
             
-            # 3-4. 안 쓰는 찌꺼기 이미지 정리
             docker image prune -f
