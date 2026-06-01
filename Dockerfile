@@ -5,14 +5,14 @@ WORKDIR /app
 
 # 패키지 매니저 캐싱 최적화를 위해 package.json 및 package-lock.json 복사
 COPY package*.json ./
-RUN npm ci
+RUN npm install
 
 # 소스 코드 전체 복사 후 빌드 (vite config, svelte config 등 포함)
 COPY . .
 RUN npm run build
 
 # 의존성 정리: 프로덕션용 패키지만 재설치하여 이미지 사이즈 최적화
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 
 
 # 2. Run Stage
