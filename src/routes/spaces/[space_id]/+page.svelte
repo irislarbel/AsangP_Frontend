@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { PageData } from './$types';
-  import { onMount } from 'svelte';
+  import type { SpaceStatus, SpaceHistory, PeakResponse } from '$lib/types';
+  import { onMount, untrack } from 'svelte';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
@@ -12,22 +13,133 @@
   
   let Line: any = $state(null);
   let { data }: { data: PageData } = $props();
+  let space_id = $derived(data.space_id);
   
-  let status = $derived(data.status);
-  let history = $derived(data.history);
+  let status: SpaceStatus = $state({
+    space_id: space_id,
+    space_name: "불러오는 중...",
+    congestion_level: 0,
+    last_update: null
+  });
+  let history: SpaceHistory = $state({ target: [], comparison: [] });
+  let peakData: PeakResponse | null = $state(null);
 
-  // 현재 선택된 날짜
-  let selectedDate = $state(page.url.searchParams.get('target_date') || (function() {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, '0');
-    const d = String(now.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  })());
+  let isChartLoading = $state(true);
+  let isTableLoading = $state(true);
 
-  // 피크 분석 데이터 및 날짜
-  let peakData = $derived(data.peakData);
+  // 현재 선택된 날짜 (URL에서 주입)
+  let selectedDate = $derived(data.targetDate);
   let peakDateStr = $derived(data.peakDateStr);
+  
+  // 차트 렌더링 시점에 사용할 날짜 (데이터 로딩 완료 후 동기화)
+  let chartDisplayedDate = $state(data.targetDate);
+
+  // 1. 실시간 상태 페칭 (공간이 바뀔 때만 실행, 날짜 변경 무관)
+  $effect(() => {
+    let active = true;
+    
+    untrack(() => {
+      // 공간이 변경된 경우에만 상태 리셋 (날짜만 변경 시에는 실시간 혼잡도를 0%로 리셋하지 않음)
+      if (status.space_id !== space_id) {
+        status = {
+          space_id: space_id,
+          space_name: "불러오는 중...",
+          congestion_level: 0,
+          last_update: null
+        };
+      }
+    });
+
+    const fetchStatus = async () => {
+      const statusUrl = `/api/v1/spaces/${space_id}/status`;
+      const statusRes = await fetch(statusUrl).then(res => res.ok ? res.json() : null).catch(() => null);
+
+      if (!active) return;
+      
+      if (statusRes) {
+        status = statusRes;
+      } else {
+        status = { ...status, space_name: "데이터 불러오기 실패" };
+      }
+    };
+    fetchStatus();
+    return () => { active = false; };
+  });
+
+  let currentSpaceIdForHistory = space_id;
+
+  // 2. 메인 차트 독립 페칭 (selectedDate 기반)
+  $effect(() => {
+    let active = true;
+    
+    untrack(() => {
+      // 공간이 아예 변경된 경우에만 데이터 비우기 (날짜만 변경 시에는 기존 그래프 위에 로딩 휠만 띄움)
+      if (currentSpaceIdForHistory !== space_id) {
+        history = { target: [], comparison: [] };
+        currentSpaceIdForHistory = space_id;
+      }
+    });
+
+    const fetchHistory = async () => {
+      isChartLoading = true;
+      const historyUrl = `/api/v1/spaces/${space_id}/history?target_date=${encodeURIComponent(selectedDate)}`;
+      const historyRes = await fetch(historyUrl).then(res => res.ok ? res.json() : null).catch(() => null);
+
+      if (!active) return;
+      
+      if (historyRes) {
+        history = historyRes;
+        chartDisplayedDate = selectedDate; // 새 데이터를 받았을 때 차트 기준 날짜 갱신
+      } else {
+        history = { target: [], comparison: [] };
+      }
+      
+      isChartLoading = false;
+    };
+    fetchHistory();
+    return () => { active = false; };
+  });
+
+  let currentSpaceIdForPeak = space_id;
+
+  // 하단 표 독립 페칭 (peakDateStr 기반)
+  $effect(() => {
+    let active = true;
+    
+    untrack(() => {
+      // 공간이 아예 변경된 경우에만 데이터 비우기
+      if (currentSpaceIdForPeak !== space_id) {
+        peakData = null;
+        currentSpaceIdForPeak = space_id;
+      }
+    });
+
+    const fetchPeakData = async () => {
+      isTableLoading = true;
+
+      const [py, pm, pd] = peakDateStr.split('-').map(Number);
+      const apiDate = new Date(Date.UTC(py, pm - 1, pd));
+      apiDate.setUTCDate(apiDate.getUTCDate() - 1);
+      
+      const apiYear = apiDate.getUTCFullYear();
+      const apiMonth = String(apiDate.getUTCMonth() + 1).padStart(2, '0');
+      const apiDay = String(apiDate.getUTCDate()).padStart(2, '0');
+      const apiQueryDate = `${apiYear}-${apiMonth}-${apiDay}`;
+      
+      const peaksUrl = `/api/v1/spaces/${space_id}/peaks?target_date=${encodeURIComponent(apiQueryDate)}`;
+      const peaksRes = await fetch(peaksUrl).then(res => res.ok ? res.json() : null).catch(() => null);
+
+      if (!active) return;
+      if (peaksRes) {
+        peakData = peaksRes;
+      } else {
+        peakData = null;
+      }
+      isTableLoading = false;
+    };
+    fetchPeakData();
+    return () => { active = false; };
+  });
 
   // Sparkline 공통 옵션 (상단 메인 차트와 동일한 TimeScale 사용)
   const sparklineOptions = {
@@ -123,8 +235,8 @@
   let chartData = $derived({
     datasets: [
       {
-        label: `${selectedDate} (대상일)`,
-        data: (history.target || []).map(p => ({ x: timeToTimestamp(p.time, selectedDate), y: p.congestion_level })),
+        label: `${chartDisplayedDate} (대상일)`,
+        data: (history.target || []).map(p => ({ x: timeToTimestamp(p.time, chartDisplayedDate), y: p.congestion_level })),
         fill: true,
         borderColor: '#072e5d',
         backgroundColor: 'rgba(7, 46, 93, 0.1)',
@@ -134,8 +246,8 @@
       },
       {
         label: '7일 전 비교',
-        // 겹쳐서 비교하기 위해 x축은 타겟 날짜(selectedDate)를 기준으로 생성
-        data: (history.comparison || []).map(p => ({ x: timeToTimestamp(p.time, selectedDate), y: p.congestion_level })),
+        // 겹쳐서 비교하기 위해 x축은 타겟 날짜(chartDisplayedDate)를 기준으로 생성
+        data: (history.comparison || []).map(p => ({ x: timeToTimestamp(p.time, chartDisplayedDate), y: p.congestion_level })),
         fill: false,
         borderColor: '#cbd5e0', // 다시 회색 계열로 변경
         borderWidth: 1,
@@ -146,9 +258,9 @@
   });
 
   // x축 min, max 계산 (해당 날짜 06:00 부터 다음날 05:50 까지)
-  let xAxisMin = $derived(new Date(`${selectedDate}T06:00:00`).getTime());
+  let xAxisMin = $derived(new Date(`${chartDisplayedDate}T06:00:00`).getTime());
   let xAxisMax = $derived((() => {
-    const maxDate = new Date(`${selectedDate}T06:00:00`);
+    const maxDate = new Date(`${chartDisplayedDate}T06:00:00`);
     maxDate.setDate(maxDate.getDate() + 1);
     return maxDate.getTime();
   })());
@@ -250,10 +362,10 @@
   const todayStr = getKstDateStr(0);
   const yesterdayStr = getKstDateStr(-1);
 
-  // 서비스 개시일 (과거 이동 제한의 기준점)
-  const SERVICE_LAUNCH_DATE = '2026-06-04';
+  // 서비스 개시일 (과거 이동 제한의 기준점) - 임시 해제
+  const SERVICE_LAUNCH_DATE = '2020-01-01';
 
-  const minDateStr = SERVICE_LAUNCH_DATE; // 메인 차트: 서비스 개시일 이전으로 이동 불가
+  const minDateStr = SERVICE_LAUNCH_DATE; // 메인 차트: 서비스 개시일 이전으로 이동 불가 (현재 테스트용 임시 해제)
 
   // Flatpickr 커스텀 달력 액션
   function customDatePicker(node: HTMLElement, { defaultDate, minDate, maxDate, onDateSelect }: any) {
@@ -280,8 +392,8 @@
     };
   }
 
-  let isNextDisabled = $derived(selectedDate >= todayStr);
-  let isPrevDisabled = $derived(selectedDate <= minDateStr);
+  let isNextDisabled = $derived(false); // 테스트를 위해 임시 해제: selectedDate >= todayStr
+  let isPrevDisabled = $derived(false); // 테스트를 위해 임시 해제: selectedDate <= minDateStr
 
   function goPrevDay() {
     if (isPrevDisabled) return;
@@ -303,19 +415,25 @@
     const y = dateObj.getFullYear();
     const m = String(dateObj.getMonth() + 1).padStart(2, '0');
     const d = String(dateObj.getDate()).padStart(2, '0');
-    selectedDate = `${y}-${m}-${d}`;
+    const newDate = `${y}-${m}-${d}`;
     
     const url = new URL(page.url);
-    url.searchParams.set('target_date', selectedDate);
+    url.searchParams.set('target_date', newDate);
+    
+    // 처음 로드 시 URL에 peak_target_date가 없어서 target_date를 따라가는 현상 방지
+    if (!url.searchParams.has('peak_target_date')) {
+      url.searchParams.set('peak_target_date', peakDateStr);
+    }
+    
     goto(url.toString(), { keepFocus: true, noScroll: true });
   }
 
-  // 하단 피크 표 날짜 제한: 미래는 오늘까지, 과거는 서비스 개시일까지
-  const maxPeakDateStr = todayStr;
-  const minPeakDateStr = SERVICE_LAUNCH_DATE;
+  // 하단 피크 표 날짜 제한: 테스트를 위해 임시 해제
+  const maxPeakDateStr = '2030-12-31'; // todayStr
+  const minPeakDateStr = '2020-01-01'; // SERVICE_LAUNCH_DATE
 
-  let isNextPeakDisabled = $derived(peakDateStr >= maxPeakDateStr);
-  let isPrevPeakDisabled = $derived(peakDateStr <= minPeakDateStr);
+  let isNextPeakDisabled = $derived(false); // 테스트를 위해 임시 해제
+  let isPrevPeakDisabled = $derived(false); // 테스트를 위해 임시 해제
 
   function goPrevPeakDay() {
     if (isPrevPeakDisabled) return;
@@ -371,9 +489,11 @@
         <div class="chart-title-row">
           <div class="title-with-status">
             <h2>{status.space_name} 혼잡도 차트</h2>
-            <span class="status-tag" style:background-color={getStatusColor(status.congestion_level)}>
-              {Math.round(status.congestion_level)}%
-            </span>
+            {#if selectedDate === todayStr}
+              <span class="status-tag" style:background-color={getStatusColor(status.congestion_level)}>
+                {Math.round(status.congestion_level)}%
+              </span>
+            {/if}
           </div>
           <div class="custom-date-picker">
             <button class="nav-arrow" disabled={isPrevDisabled} onclick={goPrevDay} aria-label="이전 날짜">
@@ -385,11 +505,15 @@
                 use:customDatePicker={{
                   defaultDate: selectedDate, 
                   minDate: minDateStr, 
-                  maxDate: todayStr, 
+                  maxDate: '2030-12-31', // 테스트용 임시 해제 (원래 todayStr)
                   onDateSelect: (d) => {
-                    selectedDate = d;
                     const url = new URL(page.url);
-                    url.searchParams.set('target_date', selectedDate);
+                    url.searchParams.set('target_date', d);
+                    
+                    if (!url.searchParams.has('peak_target_date')) {
+                      url.searchParams.set('peak_target_date', peakDateStr);
+                    }
+                    
                     goto(url.toString(), { keepFocus: true, noScroll: true });
                   }
                 }} 
@@ -413,7 +537,11 @@
         <div class="chart-wrapper">
            <Line data={chartData} options={chartOptions} />
         </div>
-        {#if !hasData}
+        {#if isChartLoading}
+          <div class="loading-overlay">
+            <div class="spinner"></div>
+          </div>
+        {:else if !hasData}
           <div class="no-data-overlay">
             해당 날짜의 데이터가 없습니다.
           </div>
@@ -460,6 +588,12 @@
     </div>
     
     <div class="table-container">
+      {#if isTableLoading}
+        <div class="loading-overlay">
+          <div class="spinner"></div>
+        </div>
+      {/if}
+
       {#if peakData && peakData.data && peakData.data.length > 0}
         <table>
           <tbody>
@@ -491,7 +625,7 @@
             {/each}
           </tbody>
         </table>
-      {:else}
+      {:else if !isTableLoading}
         <p class="loading-table">해당 날짜의 데이터가 없습니다.</p>
       {/if}
     </div>
@@ -607,6 +741,10 @@
     left: 0;
     width: 100%;
     height: 100%;
+    padding: 0;
+    margin: 0;
+    border: none;
+    box-sizing: border-box;
     opacity: 0;
     cursor: pointer;
     z-index: 2;
@@ -736,6 +874,7 @@
     overflow: hidden; /* 스크롤바 완전히 제거 */
     flex-grow: 1; /* 남은 높이 채움 */
     min-height: 0;
+    position: relative; /* 스피너 위치 기준 */
   }
 
   table {
@@ -815,5 +954,30 @@
     color: #94a3b8;
     font-size: 1.1rem;
     text-align: center;
+  }
+
+  /* CSS 스피너 및 반투명 로딩 오버레이 */
+  .loading-overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.6);
+    z-index: 10;
+    border-radius: inherit;
+  }
+
+  .spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid rgba(7, 46, 93, 0.1);
+    border-top-color: #072e5d; /* 테마 색상 (짙은 남색) */
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
   }
 </style>
