@@ -1,92 +1,55 @@
+import { redirect } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
-import type { SpaceStatus, SpaceHistory, PeakResponse } from '$lib/types';
 
-export const load: PageLoad = async ({ params, fetch, url }) => {
+export const load: PageLoad = async ({ params, url }) => {
   const { space_id } = params;
   
-  // URL에서 날짜를 가져오되, 없으면 오늘 날짜(KST 기준)를 기본값으로 사용
-  let targetDate = url.searchParams.get('target_date');
-  if (!targetDate) {
-    const kstStr = new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" });
-    const now = new Date(kstStr);
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    targetDate = `${year}-${month}-${day}`;
-  }
-  
-  const historyUrl = `/api/v1/spaces/${space_id}/history?target_date=${targetDate}`;
-  const statusUrl = `/api/v1/spaces/${space_id}/status`;
+  // 서비스 개시일 (기준점)
+  const SERVICE_LAUNCH_DATE = '2026-06-04';
 
-  let status: SpaceStatus = {
-    space_id: Number(space_id),
-    space_name: "알 수 없는 공간",
-    count: 0,
-    result: "오류",
-    last_update: null
-  };
-  
-  let history: SpaceHistory = { target: [], comparison: [] };
+  // KST 기준으로 오늘 날짜(YYYY-MM-DD) 계산
+  const now = new Date();
+  const kstTime = now.getTime() + (9 * 60 * 60 * 1000);
+  const kstDate = new Date(kstTime);
+  const y = kstDate.getUTCFullYear();
+  const m = String(kstDate.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(kstDate.getUTCDate()).padStart(2, '0');
+  const todayStr = `${y}-${m}-${d}`;
 
-  // 1. 실시간 상태 로드 (실패하더라도 기본 구조 유지)
-  try {
-    const statusRes = await fetch(statusUrl);
-    if (statusRes.ok) {
-      status = await statusRes.json();
-    } else {
-      console.warn('상태 API 로드 실패:', statusRes.status);
-    }
-  } catch (error) {
-    console.error('상태 API 네트워크 에러:', error);
+  // 날짜 파라미터 가져오기 및 유효성/범위 검증
+  let originalTargetDate = url.searchParams.get('target_date');
+  let targetDate = originalTargetDate;
+  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+  if (!targetDate || !dateRegex.test(targetDate)) {
+    targetDate = todayStr;
+  } else {
+    // URL 임의 조작 방지: 미래 또는 서비스 개시일 이전으로 이동 차단
+    if (targetDate > todayStr) targetDate = todayStr;
+    if (targetDate < SERVICE_LAUNCH_DATE) targetDate = SERVICE_LAUNCH_DATE;
   }
 
-  // 2. 히스토리 로드 (히스토리가 실패해도 status는 반환되어 화면에 이름이 유지됨)
-  try {
-    const historyRes = await fetch(historyUrl);
-    if (historyRes.ok) {
-      history = await historyRes.json();
-    } else {
-      console.warn('히스토리 API 로드 실패:', historyRes.status);
-    }
-  } catch (error) {
-    console.error('히스토리 API 네트워크 에러:', error);
-  }
-
-  // 3. 피크 데이터 로드 (독립된 날짜)
-  let peakDateStr = url.searchParams.get('peak_target_date');
-  if (!peakDateStr) {
-    // 기본값: 선택한 날짜(targetDate)와 동일하게 오늘(targetDate)로 설정
+  // 피크 날짜 파라미터 가져오기 및 유효성/범위 검증
+  let originalPeakDateStr = url.searchParams.get('peak_target_date');
+  let peakDateStr = originalPeakDateStr;
+  if (!peakDateStr || !dateRegex.test(peakDateStr)) {
     peakDateStr = targetDate;
+  } else {
+    if (peakDateStr > todayStr) peakDateStr = todayStr;
+    if (peakDateStr < SERVICE_LAUNCH_DATE) peakDateStr = SERVICE_LAUNCH_DATE;
   }
 
-  // 백엔드 API가 target_date를 포함하여 과거 7일을 반환하므로,
-  // 6월 3일을 선택했을 때 5월 27일~6월 2일을 가져오기 위해 하루를 뺀 날짜로 API를 호출함
-  const [py, pm, pd] = peakDateStr.split('-').map(Number);
-  const apiDate = new Date(Date.UTC(py, pm - 1, pd));
-  apiDate.setUTCDate(apiDate.getUTCDate() - 1);
-  
-  const apiYear = apiDate.getUTCFullYear();
-  const apiMonth = String(apiDate.getUTCMonth() + 1).padStart(2, '0');
-  const apiDay = String(apiDate.getUTCDate()).padStart(2, '0');
-  const apiQueryDate = `${apiYear}-${apiMonth}-${apiDay}`;
-
-  let peakData: PeakResponse | null = null;
-  const peaksUrl = `/api/v1/spaces/${space_id}/peaks?target_date=${apiQueryDate}`;
-  try {
-    const peaksRes = await fetch(peaksUrl);
-    if (peaksRes.ok) {
-      peakData = await peaksRes.json();
-    } else {
-      console.warn('피크 API 로드 실패:', peaksRes.status);
-    }
-  } catch (error) {
-    console.error('피크 API 네트워크 에러:', error);
+  // 값이 교정되었다면 강제로 정상 URL로 리다이렉트
+  if (targetDate !== originalTargetDate || peakDateStr !== originalPeakDateStr) {
+    const newUrl = new URL(url);
+    newUrl.searchParams.set('target_date', targetDate);
+    newUrl.searchParams.set('peak_target_date', peakDateStr);
+    throw redirect(302, newUrl.pathname + newUrl.search);
   }
 
+  // 이제 데이터 패칭은 Svelte 컴포넌트 측(클라이언트)에서 수행합니다.
   return {
-    status,
-    history,
-    peakData,
+    space_id: Number(space_id),
+    targetDate,
     peakDateStr
   };
 };
