@@ -5,7 +5,7 @@
       <span class="logo-text">아주대학교</span>
     </a>
     <div class="header-text">
-      <h1 class="header-title">AsangP Dashboard</h1>
+      <h1 class="header-title">자리찾아주</h1>
       <p class="subtitle">실시간 공간 혼잡도 모니터링</p>
     </div>
   </div>
@@ -74,5 +74,32 @@
     color: #dee2e6;
     font-size: clamp(0.8rem, 1.5vw, 1.1rem);
     margin: 0;
+  }
+
+  /* 모바일 최적화: 로고 좌측, 텍스트 중앙 유지하되 겹치지 않도록 조치 */
+  @media (max-width: 768px) {
+    .header-content {
+      /* 기본 flex 센터 정렬 유지 (텍스트는 중앙) */
+    }
+    .logo-link {
+      position: absolute;
+      left: 1rem;
+      top: 50%;
+      transform: translateY(-50%);
+      flex-direction: column; /* 로고와 텍스트를 위아래로 배치 */
+      gap: 0.2rem; /* 간격 축소 */
+    }
+    .logo-text {
+      font-size: 0.7rem; /* 가로폭을 줄이기 위해 폰트 축소 */
+    }
+    .header-logo {
+      height: 1.8rem; /* 세로 배치를 고려해 로고 크기 축소 */
+    }
+    .header-title {
+      font-size: 1.6rem; /* 제목 크기 확대 */
+    }
+    .subtitle {
+      font-size: 0.9rem;
+    }
   }
 </style>

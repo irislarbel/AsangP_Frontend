@@ -63,8 +63,17 @@ export const load: PageLoad = async ({ params, fetch, url }) => {
     peakDateStr = `${pYear}-${pMonth}-${pDay}`;
   }
 
+  // 백엔드 API가 target_date를 포함하여 과거 7일을 반환하므로,
+  // 6월 3일을 선택했을 때 5월 27일~6월 2일을 가져오기 위해 하루를 뺀 날짜로 API를 호출함
+  const apiDate = new Date(peakDateStr);
+  apiDate.setDate(apiDate.getDate() - 1);
+  const apiYear = apiDate.getFullYear();
+  const apiMonth = String(apiDate.getMonth() + 1).padStart(2, '0');
+  const apiDay = String(apiDate.getDate()).padStart(2, '0');
+  const apiQueryDate = `${apiYear}-${apiMonth}-${apiDay}`;
+
   let peakData: PeakResponse | null = null;
-  const peaksUrl = `/api/v1/spaces/${space_id}/peaks?target_date=${peakDateStr}`;
+  const peaksUrl = `/api/v1/spaces/${space_id}/peaks?target_date=${apiQueryDate}`;
   try {
     const peaksRes = await fetch(peaksUrl);
     if (peaksRes.ok) {
