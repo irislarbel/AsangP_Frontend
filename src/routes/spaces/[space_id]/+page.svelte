@@ -6,6 +6,10 @@
   import { page } from '$app/state';
   import Header from '$lib/components/Header.svelte';
   
+  import flatpickr from 'flatpickr';
+  import 'flatpickr/dist/flatpickr.css';
+  import { Korean } from 'flatpickr/dist/l10n/ko.js';
+  
   let Line: any = $state(null);
   let { data }: { data: PageData } = $props();
   
@@ -24,21 +28,6 @@
   // 피크 분석 데이터 및 날짜
   let peakData = $derived(data.peakData);
   let peakDateStr = $derived(data.peakDateStr);
-
-  function handleDateChange(e: Event) {
-    const target = e.target as HTMLInputElement;
-    selectedDate = target.value;
-    const url = new URL(page.url);
-    url.searchParams.set('target_date', selectedDate);
-    goto(url.toString(), { keepFocus: true, noScroll: true });
-  }
-
-  function handlePeakDateChange(e: Event) {
-    const target = e.target as HTMLInputElement;
-    const url = new URL(page.url);
-    url.searchParams.set('peak_target_date', target.value);
-    goto(url.toString(), { keepFocus: true, noScroll: true });
-  }
 
   // Sparkline 공통 옵션 (상단 메인 차트와 동일한 TimeScale 사용)
   const sparklineOptions = {
@@ -159,7 +148,7 @@
   // x축 min, max 계산 (해당 날짜 06:00 부터 다음날 05:50 까지)
   let xAxisMin = $derived(new Date(`${selectedDate}T06:00:00`).getTime());
   let xAxisMax = $derived((() => {
-    const maxDate = new Date(`${selectedDate}T05:50:00`);
+    const maxDate = new Date(`${selectedDate}T06:00:00`);
     maxDate.setDate(maxDate.getDate() + 1);
     return maxDate.getTime();
   })());
@@ -202,6 +191,7 @@
     scales: {
       y: { 
         beginAtZero: true, 
+        max: 100,
         title: { display: false },
         ticks: { display: false } // Y축 숫자 숨김
       },
@@ -218,7 +208,6 @@
         },
         grid: { display: false },
         ticks: {
-          source: 'data',
           autoSkip: true,
           maxRotation: 0,
         }
@@ -244,6 +233,126 @@
     }
     return dateStr;
   }
+
+  // 커스텀 날짜 선택기용 로직 (서버 위치인 한국 시간 KST 기준)
+  const getKstDateStr = (offsetDays = 0) => {
+    const kstStr = new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" });
+    const d = new Date(kstStr);
+    if (offsetDays !== 0) {
+      d.setDate(d.getDate() + offsetDays);
+    }
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const todayStr = getKstDateStr(0);
+  const yesterdayStr = getKstDateStr(-1);
+
+  // 서비스 개시일 (과거 이동 제한의 기준점)
+  const SERVICE_LAUNCH_DATE = '2026-06-04';
+
+  const minDateStr = SERVICE_LAUNCH_DATE; // 메인 차트: 서비스 개시일 이전으로 이동 불가
+
+  // Flatpickr 커스텀 달력 액션
+  function customDatePicker(node: HTMLElement, { defaultDate, minDate, maxDate, onDateSelect }: any) {
+    const fp = flatpickr(node, {
+      locale: Korean,
+      defaultDate,
+      minDate,
+      maxDate,
+      disableMobile: true, // 모바일 네이티브 달력 무시하고 강제로 커스텀 UI 띄움
+      onChange: (selectedDates, dateStr) => {
+        onDateSelect(dateStr);
+      }
+    });
+
+    return {
+      update(newOpts: any) {
+        fp.set('minDate', newOpts.minDate);
+        fp.set('maxDate', newOpts.maxDate);
+        fp.setDate(newOpts.defaultDate, false);
+      },
+      destroy() {
+        fp.destroy();
+      }
+    };
+  }
+
+  let isNextDisabled = $derived(selectedDate >= todayStr);
+  let isPrevDisabled = $derived(selectedDate <= minDateStr);
+
+  function goPrevDay() {
+    if (isPrevDisabled) return;
+    const [y, m, d] = selectedDate.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d);
+    dateObj.setDate(dateObj.getDate() - 1);
+    updateSelectedDate(dateObj);
+  }
+
+  function goNextDay() {
+    if (isNextDisabled) return;
+    const [y, m, d] = selectedDate.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d);
+    dateObj.setDate(dateObj.getDate() + 1);
+    updateSelectedDate(dateObj);
+  }
+
+  function updateSelectedDate(dateObj: Date) {
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const d = String(dateObj.getDate()).padStart(2, '0');
+    selectedDate = `${y}-${m}-${d}`;
+    
+    const url = new URL(page.url);
+    url.searchParams.set('target_date', selectedDate);
+    goto(url.toString(), { keepFocus: true, noScroll: true });
+  }
+
+  // 하단 피크 표 날짜 제한: 미래는 오늘까지, 과거는 서비스 개시일까지
+  const maxPeakDateStr = todayStr;
+  const minPeakDateStr = SERVICE_LAUNCH_DATE;
+
+  let isNextPeakDisabled = $derived(peakDateStr >= maxPeakDateStr);
+  let isPrevPeakDisabled = $derived(peakDateStr <= minPeakDateStr);
+
+  function goPrevPeakDay() {
+    if (isPrevPeakDisabled) return;
+    const [y, m, d] = peakDateStr.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d);
+    dateObj.setDate(dateObj.getDate() - 1);
+    updatePeakDate(dateObj);
+  }
+
+  function goNextPeakDay() {
+    if (isNextPeakDisabled) return;
+    const [y, m, d] = peakDateStr.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d);
+    dateObj.setDate(dateObj.getDate() + 1);
+    updatePeakDate(dateObj);
+  }
+
+  function updatePeakDate(dateObj: Date) {
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const d = String(dateObj.getDate()).padStart(2, '0');
+    const newPeakDate = `${y}-${m}-${d}`;
+    
+    const url = new URL(page.url);
+    url.searchParams.set('peak_target_date', newPeakDate);
+    goto(url.toString(), { keepFocus: true, noScroll: true });
+  }
+
+  function formatDateVerbose(dateStr: string) {
+    if (!dateStr) return '';
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d);
+    const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+    const day = dayNames[dateObj.getDay()];
+    
+    return m + "월 " + d + "일 (" + day + ")";
+  }
 </script>
 
 <div class="page-wrapper">
@@ -261,17 +370,43 @@
       <div class="chart-header">
         <div class="chart-title-row">
           <div class="title-with-status">
-            <h2>{status.space_name} 혼잡도 분석</h2>
+            <h2>{status.space_name} 혼잡도 차트</h2>
             <span class="status-tag" style:background-color={getStatusColor(status.congestion_level)}>
               {Math.round(status.congestion_level)}%
             </span>
           </div>
-          <div class="date-picker">
-            <label for="date">조회 일자:</label>
-            <input type="date" id="date" value={selectedDate} onchange={handleDateChange} />
+          <div class="custom-date-picker">
+            <button class="nav-arrow" disabled={isPrevDisabled} onclick={goPrevDay} aria-label="이전 날짜">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+            </button>
+            
+            <div class="date-badge-wrapper">
+              <input type="text" id="date" class="hidden-date-input" 
+                use:customDatePicker={{
+                  defaultDate: selectedDate, 
+                  minDate: minDateStr, 
+                  maxDate: todayStr, 
+                  onDateSelect: (d) => {
+                    selectedDate = d;
+                    const url = new URL(page.url);
+                    url.searchParams.set('target_date', selectedDate);
+                    goto(url.toString(), { keepFocus: true, noScroll: true });
+                  }
+                }} 
+              />
+              <div class="date-badge">
+                <img src="/calendar-icon.svg" alt="calendar" class="calendar-icon" />
+                <span>{formatDateVerbose(selectedDate)}</span>
+                <svg class="dropdown-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </div>
+            </div>
+
+            <button class="nav-arrow" disabled={isNextDisabled} onclick={goNextDay} aria-label="다음 날짜">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </button>
           </div>
         </div>
-        <p>마우스 휠로 <strong>확대/축소</strong>, 드래그로 <strong>좌우 이동</strong>이 가능합니다.</p>
+        <p>차트를 드래그하거나, <strong>확대/축소</strong>하여 원하는 시간대를 상세히 확인해 보세요.</p>
       </div>
     <div class="chart-container">
       {#if Line}
@@ -287,17 +422,40 @@
         <p class="loading-chart">분석 차트 로드 중...</p>
       {/if}
     </div>
-    <div class="chart-footer">
-      * 데이터가 없는 시간대는 0으로 자동 보정되어 표시됩니다. (06:00 ~ 익일 05:50)
-    </div>
+
   </div>
   
   <div class="table-section">
     <div class="table-header">
-      <h2>과거 7일 피크 시간대</h2>
-      <div class="date-picker">
-        <label for="peakDate">기준 날짜:</label>
-        <input type="date" id="peakDate" value={peakDateStr} onchange={handlePeakDateChange} />
+      <h2>주간 혼잡도 추이</h2>
+      <div class="custom-date-picker">
+        <button class="nav-arrow" disabled={isPrevPeakDisabled} onclick={goPrevPeakDay} aria-label="이전 날짜">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        </button>
+        
+        <div class="date-badge-wrapper">
+          <input type="text" id="peakDate" class="hidden-date-input" 
+            use:customDatePicker={{
+              defaultDate: peakDateStr, 
+              minDate: minPeakDateStr, 
+              maxDate: maxPeakDateStr, 
+              onDateSelect: (d) => {
+                const url = new URL(page.url);
+                url.searchParams.set('peak_target_date', d);
+                goto(url.toString(), { keepFocus: true, noScroll: true });
+              }
+            }} 
+          />
+          <div class="date-badge">
+            <img src="/calendar-icon.svg" alt="calendar" class="calendar-icon" />
+            <span>{formatDateVerbose(peakDateStr)}</span>
+            <svg class="dropdown-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+        </div>
+
+        <button class="nav-arrow" disabled={isNextPeakDisabled} onclick={goNextPeakDay} aria-label="다음 날짜">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        </button>
       </div>
     </div>
     
@@ -307,16 +465,16 @@
           <tbody>
             {#each peakData.data as pd}
               <tr>
-                <td>{formatDateString(pd.date)}</td>
+                <td style="white-space: nowrap;">{formatDateString(pd.date)}</td>
                 <td>
                   {#if pd.peak_ranges && pd.peak_ranges.length > 0}
                     <div class="peak-badges">
                       {#each pd.peak_ranges as pr}
-                        <span class="peak-badge">{pr}</span>
+                        <span class="peak-text">{pr}</span>
                       {/each}
                     </div>
                   {:else}
-                    <span class="no-peak">혼잡 시간대 없음 <small>(최고 {pd.max_congestion ?? 0}%)</small></span>
+                    <span class="no-peak">대체로 한산한 편 <small>(최고 {pd.max_congestion ?? 0}%)</small></span>
                   {/if}
                 </td>
                 <td class="sparkline-cell">
@@ -334,7 +492,7 @@
           </tbody>
         </table>
       {:else}
-        <p class="loading-table">데이터를 불러오거나 백엔드 API가 준비되지 않았습니다.</p>
+        <p class="loading-table">해당 날짜의 데이터가 없습니다.</p>
       {/if}
     </div>
   </div>
@@ -392,31 +550,106 @@
   }
 
   .status-tag {
-    padding: 0.2rem 0.8rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.35rem 0.8rem; /* line-height가 줄어든 만큼 상하 패딩을 늘려 기존 뱃지 높이 유지 */
     border-radius: 99px;
     color: white;
     font-weight: bold;
     font-size: 0.85rem;
+    line-height: 1; /* 텍스트 렌더링에 의한 상하 여백을 없애 뱃지 내부의 완벽한 중앙 정렬 달성 */
   }
 
-  .date-picker {
+  /* 커스텀 날짜 선택기(뱃지 스타일) CSS */
+  .custom-date-picker {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    font-size: 0.9rem;
+    gap: clamp(0.2rem, 1vw, 0.5rem);
   }
 
-  .date-picker input {
-    padding: 0.4rem 0.8rem;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
+  .nav-arrow {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: clamp(0.2rem, 1vw, 0.4rem);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #4a5568;
+    border-radius: 50%;
+    transition: background-color 0.2s, color 0.2s;
+  }
+  
+  .nav-arrow svg {
+    width: clamp(1rem, 2.5vw, 1.2rem);
+    height: clamp(1rem, 2.5vw, 1.2rem);
+  }
+
+  .nav-arrow:hover:not(:disabled) {
+    background-color: #edf2f7;
     color: #2d3748;
-    font-family: inherit;
+  }
+
+  .nav-arrow:disabled {
+    color: #cbd5e0;
+    cursor: not-allowed;
+  }
+
+  .date-badge-wrapper {
+    position: relative;
+    display: inline-block;
+  }
+
+  .hidden-date-input {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+    z-index: 2;
+    font-size: 16px; /* 모바일(iOS Safari) 자동 확대 방지 */
+  }
+
+  .date-badge {
+    display: flex;
+    align-items: center;
+    gap: clamp(0.2rem, 1vw, 0.4rem);
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+    padding: clamp(0.3rem, 1.5vw, 0.5rem) clamp(0.6rem, 2vw, 1rem);
+    border-radius: 99px;
+    color: #334155;
+    font-weight: 600;
+    font-size: clamp(0.8rem, 2vw, 0.95rem);
+    position: relative;
+    z-index: 1;
+    transition: background-color 0.2s, border-color 0.2s;
+  }
+  
+  .date-badge-wrapper:hover .date-badge {
+    background-color: #f1f5f9;
+    border-color: #cbd5e0;
+  }
+
+  .calendar-icon {
+    width: clamp(0.9rem, 2vw, 1.1rem);
+    height: clamp(0.9rem, 2vw, 1.1rem);
+    opacity: 0.7;
+  }
+
+  .dropdown-icon {
+    margin-left: 0.1rem;
+    opacity: 0.5;
+    width: clamp(0.7rem, 1.5vw, 0.9rem);
+    height: clamp(0.7rem, 1.5vw, 0.9rem);
   }
 
   .chart-section {
     background: #fdfdfd;
-    padding: 1.5rem;
+    padding: clamp(0.8rem, 3vw, 1.5rem); /* 모바일에서 박스 좌우 여백을 줄여 내부 공간 확보 */
     border-radius: 16px;
     display: flex;
     flex-direction: column;
@@ -433,7 +666,12 @@
     gap: 1rem;
   }
 
-  .chart-header h2 { margin: 0; font-size: 1.25rem; color: #1e293b; }
+  .chart-header h2 { 
+    margin: 0; 
+    font-size: 1.25rem; 
+    color: #1e293b; 
+    line-height: 1; /* 텍스트 상하 기본 여백을 없애 퍼센트 타원과 Y축 중앙을 완벽히 맞춤 */
+  }
   .chart-header p { margin: 0 0 1rem 0; color: #64748b; font-size: 0.85rem; }
 
   .chart-container {
@@ -466,21 +704,16 @@
     color: #4a5568;
     pointer-events: none;
     z-index: 10;
+    text-align: center;
   }
 
-  .chart-footer {
-    margin-top: 1rem;
-    font-size: 0.75rem;
-    color: #94a3b8;
-    text-align: right;
-  }
 
   .loading-chart { color: #94a3b8; font-style: italic; }
 
   /* Table Section Styles */
   .table-section {
     background: #fdfdfd;
-    padding: 1.5rem;
+    padding: clamp(0.8rem, 3vw, 1.5rem); /* 모바일에서 박스 좌우 여백을 줄여 내부 공간 확보 */
     border-radius: 16px;
     display: flex;
     flex-direction: column;
@@ -510,11 +743,10 @@
     height: 100%; /* 표 크기를 컨테이너 크기에 딱 맞춤 */
     border-collapse: collapse;
     text-align: left;
-    min-width: 500px;
   }
 
   th, td {
-    padding: 0.5rem 1rem; /* 세로 패딩을 줄여서 한 화면에 더 잘 들어가도록 조정 */
+    padding: 0.5rem clamp(0.2rem, 2vw, 1rem); /* 모바일에서는 좌우 여백을 최소화하여 공간 확보 */
     border-bottom: 1px solid #f1f5f9;
   }
 
@@ -531,22 +763,32 @@
 
   .peak-badges {
     display: flex;
-    gap: 0.5rem;
+    gap: 1rem;
     flex-wrap: wrap;
   }
 
-  .peak-badge {
-    background-color: #fee2e2;
-    color: #ef4444;
-    padding: 0.25rem 0.75rem;
-    border-radius: 99px;
-    font-size: 0.85rem;
+  .peak-text {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: #334155;
+    font-size: 0.9rem;
     font-weight: 600;
+  }
+
+  .peak-text::before {
+    content: "";
+    display: block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: #ef4444;
   }
 
   .no-peak {
     color: #10b981;
     font-weight: 500;
+    white-space: nowrap; /* 텍스트 공간이 부족하더라도 절대 두 줄로 꺾이지 않도록 방어 */
   }
   
   .no-peak small {
@@ -555,18 +797,23 @@
   }
 
   .sparkline-cell {
-    width: 150px;
+    width: clamp(80px, 20vw, 150px);
   }
 
   .sparkline-wrapper {
     position: relative;
-    width: 150px;
-    height: 40px;
+    width: clamp(80px, 20vw, 150px);
+    height: clamp(30px, 6vw, 40px);
   }
   
   .loading-table {
-    text-align: center;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+    min-height: 200px; /* 데이터가 없을 때의 최소 높이 확보 */
     color: #94a3b8;
-    padding: 2rem 0;
+    font-size: 1.1rem;
+    text-align: center;
   }
 </style>
