@@ -234,25 +234,26 @@
     return dateStr;
   }
 
-  // 커스텀 날짜 선택기용 로직
-  const todayStr = (function() {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, '0');
-    const d = String(now.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  })();
-
-  const yesterdayStr = (function() {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
+  // 커스텀 날짜 선택기용 로직 (서버 위치인 한국 시간 KST 기준)
+  const getKstDateStr = (offsetDays = 0) => {
+    const kstStr = new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" });
+    const d = new Date(kstStr);
+    if (offsetDays !== 0) {
+      d.setDate(d.getDate() + offsetDays);
+    }
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
     return `${y}-${m}-${day}`;
-  })();
+  };
 
-  const minDateStr = todayStr; // 메인 차트: 오늘 날짜로 최소 제한 (과거 이동 불가)
+  const todayStr = getKstDateStr(0);
+  const yesterdayStr = getKstDateStr(-1);
+
+  // 서비스 개시일 (과거 이동 제한의 기준점)
+  const SERVICE_LAUNCH_DATE = '2026-06-04';
+
+  const minDateStr = SERVICE_LAUNCH_DATE; // 메인 차트: 서비스 개시일 이전으로 이동 불가
 
   // Flatpickr 커스텀 달력 액션
   function customDatePicker(node: HTMLElement, { defaultDate, minDate, maxDate, onDateSelect }: any) {
@@ -284,14 +285,16 @@
 
   function goPrevDay() {
     if (isPrevDisabled) return;
-    const dateObj = new Date(selectedDate);
+    const [y, m, d] = selectedDate.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d);
     dateObj.setDate(dateObj.getDate() - 1);
     updateSelectedDate(dateObj);
   }
 
   function goNextDay() {
     if (isNextDisabled) return;
-    const dateObj = new Date(selectedDate);
+    const [y, m, d] = selectedDate.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d);
     dateObj.setDate(dateObj.getDate() + 1);
     updateSelectedDate(dateObj);
   }
@@ -307,23 +310,25 @@
     goto(url.toString(), { keepFocus: true, noScroll: true });
   }
 
-  // 하단 피크 표 날짜 제한: 어제(전 날) 기준
-  const maxPeakDateStr = yesterdayStr;
-  const minPeakDateStr = yesterdayStr;
+  // 하단 피크 표 날짜 제한: 미래는 오늘까지, 과거는 서비스 개시일까지
+  const maxPeakDateStr = todayStr;
+  const minPeakDateStr = SERVICE_LAUNCH_DATE;
 
   let isNextPeakDisabled = $derived(peakDateStr >= maxPeakDateStr);
   let isPrevPeakDisabled = $derived(peakDateStr <= minPeakDateStr);
 
   function goPrevPeakDay() {
     if (isPrevPeakDisabled) return;
-    const dateObj = new Date(peakDateStr);
+    const [y, m, d] = peakDateStr.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d);
     dateObj.setDate(dateObj.getDate() - 1);
     updatePeakDate(dateObj);
   }
 
   function goNextPeakDay() {
     if (isNextPeakDisabled) return;
-    const dateObj = new Date(peakDateStr);
+    const [y, m, d] = peakDateStr.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d);
     dateObj.setDate(dateObj.getDate() + 1);
     updatePeakDate(dateObj);
   }
@@ -341,13 +346,12 @@
 
   function formatDateVerbose(dateStr: string) {
     if (!dateStr) return '';
-    const dateObj = new Date(dateStr);
-    const m = dateObj.getMonth() + 1;
-    const d = dateObj.getDate();
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d);
     const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
     const day = dayNames[dateObj.getDay()];
     
-    return `${m}월 ${d}일 (${day})`;
+    return m + "월 " + d + "일 (" + day + ")";
   }
 </script>
 
