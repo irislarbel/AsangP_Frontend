@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { PageData } from './$types';
   import type { SpaceStatus, SpaceHistory, PeakResponse } from '$lib/types';
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
@@ -17,9 +17,8 @@
   
   let status: SpaceStatus = $state({
     space_id: space_id,
-    space_name: "알 수 없는 공간",
-    count: 0,
-    result: "로딩 중...",
+    space_name: "불러오는 중...",
+    congestion_level: 0,
     last_update: null
   });
   let history: SpaceHistory = $state({ target: [], comparison: [] });
@@ -29,48 +28,92 @@
   let isTableLoading = $state(true);
 
   // 현재 선택된 날짜 (URL에서 주입)
-  let selectedDate = $state(data.targetDate);
-  let peakDateStr = $state(data.peakDateStr);
+  let selectedDate = $derived(data.targetDate);
+  let peakDateStr = $derived(data.peakDateStr);
   
   // 차트 렌더링 시점에 사용할 날짜 (데이터 로딩 완료 후 동기화)
   let chartDisplayedDate = $state(data.targetDate);
 
-  // URL 변경 시 로컬 상태 동기화
-  $effect(() => {
-    selectedDate = data.targetDate;
-  });
-  $effect(() => {
-    peakDateStr = data.peakDateStr;
-  });
-
-  // 메인 차트 독립 페칭 (selectedDate 기반)
+  // 1. 실시간 상태 페칭 (공간이 바뀔 때만 실행, 날짜 변경 무관)
   $effect(() => {
     let active = true;
-    const fetchMainData = async () => {
-      isChartLoading = true;
-      const statusUrl = `/api/v1/spaces/${space_id}/status`;
-      const historyUrl = `/api/v1/spaces/${space_id}/history?target_date=${selectedDate}`;
+    
+    untrack(() => {
+      // 공간이 변경된 경우에만 상태 리셋 (날짜만 변경 시에는 실시간 혼잡도를 0%로 리셋하지 않음)
+      if (status.space_id !== space_id) {
+        status = {
+          space_id: space_id,
+          space_name: "불러오는 중...",
+          congestion_level: 0,
+          last_update: null
+        };
+      }
+    });
 
-      const [statusRes, historyRes] = await Promise.all([
-        fetch(statusUrl).then(res => res.ok ? res.json() : null).catch(() => null),
-        fetch(historyUrl).then(res => res.ok ? res.json() : null).catch(() => null)
-      ]);
+    const fetchStatus = async () => {
+      const statusUrl = `/api/v1/spaces/${space_id}/status`;
+      const statusRes = await fetch(statusUrl).then(res => res.ok ? res.json() : null).catch(() => null);
 
       if (!active) return;
-      if (statusRes) status = statusRes;
+      
+      if (statusRes) {
+        status = statusRes;
+      } else {
+        status = { ...status, space_name: "데이터 불러오기 실패" };
+      }
+    };
+    fetchStatus();
+    return () => { active = false; };
+  });
+
+  let currentSpaceIdForHistory = space_id;
+
+  // 2. 메인 차트 독립 페칭 (selectedDate 기반)
+  $effect(() => {
+    let active = true;
+    
+    untrack(() => {
+      // 공간이 아예 변경된 경우에만 데이터 비우기 (날짜만 변경 시에는 기존 그래프 위에 로딩 휠만 띄움)
+      if (currentSpaceIdForHistory !== space_id) {
+        history = { target: [], comparison: [] };
+        currentSpaceIdForHistory = space_id;
+      }
+    });
+
+    const fetchHistory = async () => {
+      isChartLoading = true;
+      const historyUrl = `/api/v1/spaces/${space_id}/history?target_date=${encodeURIComponent(selectedDate)}`;
+      const historyRes = await fetch(historyUrl).then(res => res.ok ? res.json() : null).catch(() => null);
+
+      if (!active) return;
+      
       if (historyRes) {
         history = historyRes;
         chartDisplayedDate = selectedDate; // 새 데이터를 받았을 때 차트 기준 날짜 갱신
+      } else {
+        history = { target: [], comparison: [] };
       }
+      
       isChartLoading = false;
     };
-    fetchMainData();
+    fetchHistory();
     return () => { active = false; };
   });
+
+  let currentSpaceIdForPeak = space_id;
 
   // 하단 표 독립 페칭 (peakDateStr 기반)
   $effect(() => {
     let active = true;
+    
+    untrack(() => {
+      // 공간이 아예 변경된 경우에만 데이터 비우기
+      if (currentSpaceIdForPeak !== space_id) {
+        peakData = null;
+        currentSpaceIdForPeak = space_id;
+      }
+    });
+
     const fetchPeakData = async () => {
       isTableLoading = true;
 
@@ -83,11 +126,15 @@
       const apiDay = String(apiDate.getUTCDate()).padStart(2, '0');
       const apiQueryDate = `${apiYear}-${apiMonth}-${apiDay}`;
       
-      const peaksUrl = `/api/v1/spaces/${space_id}/peaks?target_date=${apiQueryDate}`;
+      const peaksUrl = `/api/v1/spaces/${space_id}/peaks?target_date=${encodeURIComponent(apiQueryDate)}`;
       const peaksRes = await fetch(peaksUrl).then(res => res.ok ? res.json() : null).catch(() => null);
 
       if (!active) return;
-      if (peaksRes) peakData = peaksRes;
+      if (peaksRes) {
+        peakData = peaksRes;
+      } else {
+        peakData = null;
+      }
       isTableLoading = false;
     };
     fetchPeakData();
@@ -315,10 +362,10 @@
   const todayStr = getKstDateStr(0);
   const yesterdayStr = getKstDateStr(-1);
 
-  // 서비스 개시일 (과거 이동 제한의 기준점)
-  const SERVICE_LAUNCH_DATE = '2026-06-04';
+  // 서비스 개시일 (과거 이동 제한의 기준점) - 임시 해제
+  const SERVICE_LAUNCH_DATE = '2020-01-01';
 
-  const minDateStr = SERVICE_LAUNCH_DATE; // 메인 차트: 서비스 개시일 이전으로 이동 불가
+  const minDateStr = SERVICE_LAUNCH_DATE; // 메인 차트: 서비스 개시일 이전으로 이동 불가 (현재 테스트용 임시 해제)
 
   // Flatpickr 커스텀 달력 액션
   function customDatePicker(node: HTMLElement, { defaultDate, minDate, maxDate, onDateSelect }: any) {
@@ -345,8 +392,8 @@
     };
   }
 
-  let isNextDisabled = $derived(selectedDate >= todayStr);
-  let isPrevDisabled = $derived(selectedDate <= minDateStr);
+  let isNextDisabled = $derived(false); // 테스트를 위해 임시 해제: selectedDate >= todayStr
+  let isPrevDisabled = $derived(false); // 테스트를 위해 임시 해제: selectedDate <= minDateStr
 
   function goPrevDay() {
     if (isPrevDisabled) return;
@@ -368,19 +415,25 @@
     const y = dateObj.getFullYear();
     const m = String(dateObj.getMonth() + 1).padStart(2, '0');
     const d = String(dateObj.getDate()).padStart(2, '0');
-    selectedDate = `${y}-${m}-${d}`;
+    const newDate = `${y}-${m}-${d}`;
     
     const url = new URL(page.url);
-    url.searchParams.set('target_date', selectedDate);
+    url.searchParams.set('target_date', newDate);
+    
+    // 처음 로드 시 URL에 peak_target_date가 없어서 target_date를 따라가는 현상 방지
+    if (!url.searchParams.has('peak_target_date')) {
+      url.searchParams.set('peak_target_date', peakDateStr);
+    }
+    
     goto(url.toString(), { keepFocus: true, noScroll: true });
   }
 
-  // 하단 피크 표 날짜 제한: 미래는 오늘까지, 과거는 서비스 개시일까지
-  const maxPeakDateStr = todayStr;
-  const minPeakDateStr = SERVICE_LAUNCH_DATE;
+  // 하단 피크 표 날짜 제한: 테스트를 위해 임시 해제
+  const maxPeakDateStr = '2030-12-31'; // todayStr
+  const minPeakDateStr = '2020-01-01'; // SERVICE_LAUNCH_DATE
 
-  let isNextPeakDisabled = $derived(peakDateStr >= maxPeakDateStr);
-  let isPrevPeakDisabled = $derived(peakDateStr <= minPeakDateStr);
+  let isNextPeakDisabled = $derived(false); // 테스트를 위해 임시 해제
+  let isPrevPeakDisabled = $derived(false); // 테스트를 위해 임시 해제
 
   function goPrevPeakDay() {
     if (isPrevPeakDisabled) return;
@@ -436,9 +489,11 @@
         <div class="chart-title-row">
           <div class="title-with-status">
             <h2>{status.space_name} 혼잡도 차트</h2>
-            <span class="status-tag" style:background-color={getStatusColor(status.congestion_level)}>
-              {Math.round(status.congestion_level)}%
-            </span>
+            {#if selectedDate === todayStr}
+              <span class="status-tag" style:background-color={getStatusColor(status.congestion_level)}>
+                {Math.round(status.congestion_level)}%
+              </span>
+            {/if}
           </div>
           <div class="custom-date-picker">
             <button class="nav-arrow" disabled={isPrevDisabled} onclick={goPrevDay} aria-label="이전 날짜">
@@ -450,11 +505,15 @@
                 use:customDatePicker={{
                   defaultDate: selectedDate, 
                   minDate: minDateStr, 
-                  maxDate: todayStr, 
+                  maxDate: '2030-12-31', // 테스트용 임시 해제 (원래 todayStr)
                   onDateSelect: (d) => {
-                    selectedDate = d;
                     const url = new URL(page.url);
-                    url.searchParams.set('target_date', selectedDate);
+                    url.searchParams.set('target_date', d);
+                    
+                    if (!url.searchParams.has('peak_target_date')) {
+                      url.searchParams.set('peak_target_date', peakDateStr);
+                    }
+                    
                     goto(url.toString(), { keepFocus: true, noScroll: true });
                   }
                 }} 

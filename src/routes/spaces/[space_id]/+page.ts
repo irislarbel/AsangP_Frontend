@@ -3,9 +3,11 @@ import type { PageLoad } from './$types';
 export const load: PageLoad = async ({ params, url }) => {
   const { space_id } = params;
   
+  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+  
   // URL에서 날짜를 가져오되, 없으면 오늘 날짜(KST 기준)를 기본값으로 사용
   let targetDate = url.searchParams.get('target_date');
-  if (!targetDate) {
+  if (!targetDate || !dateRegex.test(targetDate)) {
     const kstStr = new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" });
     const now = new Date(kstStr);
     const year = now.getFullYear();
@@ -16,7 +18,7 @@ export const load: PageLoad = async ({ params, url }) => {
   
   // 피크 날짜 가져오기 (기본값은 메인 차트 날짜)
   let peakDateStr = url.searchParams.get('peak_target_date');
-  if (!peakDateStr) {
+  if (!peakDateStr || !dateRegex.test(peakDateStr)) {
     peakDateStr = targetDate;
   }
 
